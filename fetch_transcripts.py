@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+import tempfile
 from youtube_transcript_api import YouTubeTranscriptApi
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
