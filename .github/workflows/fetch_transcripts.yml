@@ -21,12 +21,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: |
-          pip install \
-            youtube-transcript-api \
-            yt-dlp \
-            google-auth \
-            google-api-python-client
+        run: pip install yt-dlp google-auth google-api-python-client
 
       - name: Fetch new transcripts and upload to Drive
         env:
