@@ -2,17 +2,14 @@ name: Fetch Isaac Davydov Transcripts
 
 on:
   schedule:
-    # Runs daily at 8 PM UTC. Adjust to your preferred time if needed.
-    # Use https://crontab.guru to convert to your timezone.
     - cron: '0 20 * * *'
   workflow_dispatch:
-    # Allows you to trigger this manually from the GitHub Actions tab anytime.
 
 jobs:
   fetch-transcripts:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # Required to commit seen_videos.json back to the repo
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -35,7 +32,7 @@ jobs:
         env:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-                    YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
         run: python fetch_transcripts.py
 
       - name: Commit updated seen_videos.json
