@@ -29,7 +29,6 @@ def get_recent_videos(limit=10):
     if result.returncode != 0:
         print(f"yt-dlp error: {result.stderr}")
         return []
-
     videos = []
     for line in result.stdout.strip().split("\n"):
         if "|||" in line:
@@ -62,12 +61,13 @@ def save_seen_videos(seen):
 def get_transcript(video_id):
     """Pull transcript for a video using youtube-transcript-api."""
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        api = YouTubeTranscriptApi()
+        fetched = api.fetch(video_id)
         lines = []
-        for entry in transcript:
-            minutes = int(entry["start"] // 60)
-            seconds = int(entry["start"] % 60)
-            lines.append(f"[{minutes:02d}:{seconds:02d}] {entry['text']}")
+        for snippet in fetched:
+            minutes = int(snippet.start // 60)
+            seconds = int(snippet.start % 60)
+            lines.append(f"[{minutes:02d}:{seconds:02d}] {snippet.text}")
         return "\n".join(lines)
     except Exception as e:
         print(f"  Could not get transcript: {e}")
@@ -120,33 +120,28 @@ def main():
         transcript = get_transcript(vid_id)
 
         if transcript:
-            # Build a clean filename
             safe_title = (
                 "".join(c for c in video["title"] if c.isalnum() or c in " -_")
                 .strip()[:80]
             )
             filename = f"{video['date']}_{safe_title}.txt"
-
-            # Add a header with metadata before the transcript
             header = (
-                f"Title:   {video['title']}\n"
+                f"Title: {video['title']}\n"
                 f"Video ID: {vid_id}\n"
-                f"Date:    {video['date']}\n"
-                f"URL:     https://www.youtube.com/watch?v={vid_id}\n"
+                f"Date: {video['date']}\n"
+                f"URL: https://www.youtube.com/watch?v={vid_id}\n"
                 f"\n{'=' * 60}\n\n"
             )
             full_content = header + transcript
-
             result = upload_to_drive(filename, full_content, folder_id, drive_service)
             print(f"  Uploaded to Drive: {result['name']}")
             new_count += 1
+            # Only mark as seen after successful upload
+            seen.add(vid_id)
+            save_seen_videos(seen)
         else:
             print(f"  No transcript available for this video, skipping")
 
-        # Mark as seen regardless (so we don't retry videos with no transcript)
-        seen.add(vid_id)
-
-    save_seen_videos(seen)
     print(f"\nDone. {new_count} new transcript(s) uploaded.")
 
 
