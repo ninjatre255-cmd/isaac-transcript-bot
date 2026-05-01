@@ -23,8 +23,7 @@ def get_recent_videos(limit=10):
             "--flat-playlist",
             "--print", "%(id)s|||%(title)s|||%(upload_date)s",
             "--playlist-end", str(limit),
-            "--quiet",
-            "--no-warnings",
+            "--quiet", "--no-warnings",
             CHANNEL_URL,
         ],
         capture_output=True,
@@ -59,7 +58,7 @@ def parse_vtt_to_text(vtt_content):
                 if text not in seen_texts:
                     seen_texts.add(text)
                     lines.append(f"[{current_time}] {text}")
-                current_text = []
+            current_text = []
             hours = int(time_match.group(1))
             minutes = int(time_match.group(2)) + hours * 60
             seconds = int(float(time_match.group(3)))
@@ -88,7 +87,6 @@ def get_transcript(video_id):
     cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
     cookies_path = None
     tmpdir = None
-
     try:
         if cookies_content:
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
@@ -103,27 +101,46 @@ def get_transcript(video_id):
             "yt-dlp",
             "--skip-download",
             "--write-auto-subs",
-            "--sub-lang", "en.*",
+            "--sub-lang", "en",
             "--sub-format", "vtt",
             "--output", os.path.join(tmpdir, "%(id)s"),
-            "--quiet",
-            "--no-warnings",
         ]
-
         if cookies_path:
             cmd.extend(["--cookies", cookies_path])
-
         cmd.append(url)
-        subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+
+        # Print yt-dlp output for debugging
+        if result.stdout.strip():
+            print(f"  yt-dlp stdout: {result.stdout.strip()[:400]}")
+        if result.stderr.strip():
+            print(f"  yt-dlp stderr: {result.stderr.strip()[:600]}")
+        if result.returncode != 0:
+            print(f"  yt-dlp exit code: {result.returncode}")
 
         vtt_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
         if not vtt_files:
+            # List available subs to diagnose
+            print(f"  No .vtt found. Checking available subs...")
+            cmd2 = [
+                "yt-dlp",
+                "--list-subs",
+                "--quiet",
+            ]
+            if cookies_path:
+                cmd2.extend(["--cookies", cookies_path])
+            cmd2.append(url)
+            result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=60)
+            if result2.stdout.strip():
+                print(f"  Available subs: {result2.stdout.strip()[:600]}")
+            if result2.stderr.strip():
+                print(f"  list-subs stderr: {result2.stderr.strip()[:400]}")
             print(f"  No subtitles found for this video")
             return None
 
         with open(vtt_files[0], "r", encoding="utf-8") as f:
             content = f.read()
-
         return parse_vtt_to_text(content)
 
     except Exception as e:
@@ -140,7 +157,7 @@ def load_seen_videos():
     if os.path.exists(SEEN_VIDEOS_FILE):
         with open(SEEN_VIDEOS_FILE, "r") as f:
             data = json.load(f)
-            return set(data) if isinstance(data, list) else set()
+        return set(data) if isinstance(data, list) else set()
     return set()
 
 
@@ -159,8 +176,8 @@ def main():
 
     videos = get_recent_videos(limit=10)
     seen = load_seen_videos()
-
     uploaded = 0
+
     for video in videos:
         vid_id = video["id"]
         title = video["title"]
@@ -172,7 +189,6 @@ def main():
 
         print(f"\n  New video found: {title}")
         transcript = get_transcript(vid_id)
-
         if not transcript:
             print(f"  Skipping (no transcript)")
             continue
@@ -187,7 +203,6 @@ def main():
         drive_service.files().create(
             body=file_metadata, media_body=media, fields="id"
         ).execute()
-
         print(f"  Uploaded: {filename}")
         seen.add(vid_id)
         save_seen_videos(seen)
