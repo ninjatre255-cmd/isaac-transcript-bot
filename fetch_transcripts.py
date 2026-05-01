@@ -83,13 +83,14 @@ def parse_vtt_to_text(vtt_content):
 
 
 def run_yt_dlp_subs(url, tmpdir, cookies_path=None):
-    """Run yt-dlp to download auto-subs. Returns (vtt_files, stderr)."""
+    """Run yt-dlp to download auto-subs. Returns (vtt_files, rc, stderr)."""
     cmd = [
         "yt-dlp",
         "--skip-download",
         "--write-auto-subs",
         "--sub-lang", "en",
         "--sub-format", "vtt",
+        "--js-runtimes", "node",   # Node.js is available on GitHub Actions runners
         "--output", os.path.join(tmpdir, "%(id)s"),
     ]
     if cookies_path:
@@ -117,20 +118,20 @@ def get_transcript(video_id):
             tmp.write(cookies_content)
             tmp.close()
             cookies_path = tmp.name
-            print(f"  Using cookies from secret")
-        elif cookies_content:
-            print(f"  Warning: YOUTUBE_COOKIES not in Netscape format, skipping")
 
-        # Try to get subtitles (with or without cookies)
         vtt_files, rc, stderr = run_yt_dlp_subs(url, tmpdir, cookies_path)
 
         if rc != 0 and stderr:
-            print(f"  yt-dlp error (rc={rc}): {stderr[:300]}")
+            # Filter out the Node.js warning if it's just a warning
+            errors = [l for l in stderr.splitlines() if "ERROR" in l]
+            if errors:
+                print(f"  yt-dlp error: {errors[0][:300]}")
 
         if not vtt_files:
             print(f"  No subtitles found for this video")
             return None
 
+        print(f"  Found subtitle file, parsing...")
         with open(vtt_files[0], "r", encoding="utf-8") as f:
             content = f.read()
         return parse_vtt_to_text(content)
