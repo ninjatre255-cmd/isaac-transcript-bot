@@ -15,7 +15,7 @@ SEEN_VIDEOS_FILE = "seen_videos.json"
 
 
 def get_recent_videos(limit=10):
-    """Use yt-dlp to list recent videos from the channel (no API key needed)."""
+    """Use yt-dlp to list recent videos from the channel."""
     print(f"Fetching recent videos from {CHANNEL_URL}...")
     result = subprocess.run(
         [
@@ -43,7 +43,7 @@ def get_recent_videos(limit=10):
 
 
 def parse_vtt_to_text(vtt_content):
-    """Parse a VTT subtitle file into timestamped plain text, deduplicating repeated lines."""
+    """Parse a VTT subtitle file into timestamped plain text."""
     lines = []
     current_time = None
     current_text = []
@@ -82,60 +82,52 @@ def parse_vtt_to_text(vtt_content):
     return "\n".join(lines) if lines else None
 
 
+def run_yt_dlp_subs(url, tmpdir, cookies_path=None):
+    """Run yt-dlp to download auto-subs. Returns (vtt_files, stderr)."""
+    cmd = [
+        "yt-dlp",
+        "--skip-download",
+        "--write-auto-subs",
+        "--sub-lang", "en",
+        "--sub-format", "vtt",
+        "--output", os.path.join(tmpdir, "%(id)s"),
+    ]
+    if cookies_path:
+        cmd.extend(["--cookies", cookies_path])
+    cmd.append(url)
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
+    vtt_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
+    return vtt_files, result.returncode, result.stderr.strip()
+
+
 def get_transcript(video_id):
-    """Use yt-dlp to download auto-generated English subtitles for a video."""
-    cookies_content = os.environ.get("YOUTUBE_COOKIES", "")
-    cookies_path = None
+    """Download auto-generated English subtitles for a video using yt-dlp."""
+    cookies_content = os.environ.get("YOUTUBE_COOKIES", "").strip()
     tmpdir = None
+    cookies_path = None
+
     try:
-        if cookies_content:
+        tmpdir = tempfile.mkdtemp()
+        url = f"https://www.youtube.com/watch?v={video_id}"
+
+        # Validate cookies - must be Netscape format
+        if cookies_content and "Netscape HTTP Cookie File" in cookies_content:
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
             tmp.write(cookies_content)
             tmp.close()
             cookies_path = tmp.name
+            print(f"  Using cookies from secret")
+        elif cookies_content:
+            print(f"  Warning: YOUTUBE_COOKIES not in Netscape format, skipping")
 
-        tmpdir = tempfile.mkdtemp()
-        url = f"https://www.youtube.com/watch?v={video_id}"
+        # Try to get subtitles (with or without cookies)
+        vtt_files, rc, stderr = run_yt_dlp_subs(url, tmpdir, cookies_path)
 
-        cmd = [
-            "yt-dlp",
-            "--skip-download",
-            "--write-auto-subs",
-            "--sub-lang", "en",
-            "--sub-format", "vtt",
-            "--output", os.path.join(tmpdir, "%(id)s"),
-        ]
-        if cookies_path:
-            cmd.extend(["--cookies", cookies_path])
-        cmd.append(url)
+        if rc != 0 and stderr:
+            print(f"  yt-dlp error (rc={rc}): {stderr[:300]}")
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-
-        # Print yt-dlp output for debugging
-        if result.stdout.strip():
-            print(f"  yt-dlp stdout: {result.stdout.strip()[:400]}")
-        if result.stderr.strip():
-            print(f"  yt-dlp stderr: {result.stderr.strip()[:600]}")
-        if result.returncode != 0:
-            print(f"  yt-dlp exit code: {result.returncode}")
-
-        vtt_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
         if not vtt_files:
-            # List available subs to diagnose
-            print(f"  No .vtt found. Checking available subs...")
-            cmd2 = [
-                "yt-dlp",
-                "--list-subs",
-                "--quiet",
-            ]
-            if cookies_path:
-                cmd2.extend(["--cookies", cookies_path])
-            cmd2.append(url)
-            result2 = subprocess.run(cmd2, capture_output=True, text=True, timeout=60)
-            if result2.stdout.strip():
-                print(f"  Available subs: {result2.stdout.strip()[:600]}")
-            if result2.stderr.strip():
-                print(f"  list-subs stderr: {result2.stderr.strip()[:400]}")
             print(f"  No subtitles found for this video")
             return None
 
@@ -195,7 +187,12 @@ def main():
 
         safe_title = re.sub(r'[\\/:*?"<>|]', "_", title)[:80]
         filename = f"{date}_{safe_title}.txt"
-        header = f"Title: {title}\nVideo ID: {vid_id}\nURL: https://www.youtube.com/watch?v={vid_id}\nDate: {date}\n\n"
+        header = (
+            f"Title: {title}\n"
+            f"Video ID: {vid_id}\n"
+            f"URL: https://www.youtube.com/watch?v={vid_id}\n"
+            f"Date: {date}\n\n"
+        )
         content = (header + transcript).encode("utf-8")
 
         file_metadata = {"name": filename, "parents": [folder_id]}
