@@ -1,14 +1,12 @@
-import glob
 import json
 import os
 import re
-import shutil
 import subprocess
-import tempfile
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 from google.oauth2.service_account import Credentials
+from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 
 CHANNEL_URL = "https://www.youtube.com/@isaac_davydov/videos"
 SEEN_VIDEOS_FILE = "seen_videos.json"
@@ -26,8 +24,7 @@ def get_recent_videos(limit=10):
             "--quiet", "--no-warnings",
             CHANNEL_URL,
         ],
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True,
     )
     videos = []
     for line in result.stdout.strip().splitlines():
@@ -42,125 +39,33 @@ def get_recent_videos(limit=10):
     return videos
 
 
-def parse_vtt_to_text(vtt_content):
-    """Parse a VTT subtitle file into timestamped plain text."""
-    lines = []
-    current_time = None
-    current_text = []
-    seen_texts = set()
-
-    for line in vtt_content.split("\n"):
-        line = line.strip()
-        time_match = re.match(r"(\d+):(\d+):(\d+\.\d+)\s*-->", line)
-        if time_match:
-            if current_text:
-                text = " ".join(current_text)
-                if text not in seen_texts:
-                    seen_texts.add(text)
-                    lines.append(f"[{current_time}] {text}")
-            current_text = []
-            hours = int(time_match.group(1))
-            minutes = int(time_match.group(2)) + hours * 60
-            seconds = int(float(time_match.group(3)))
-            current_time = f"{minutes:02d}:{seconds:02d}"
-        elif (
-            line
-            and not line.startswith("WEBVTT")
-            and not line.startswith("NOTE")
-            and "-->" not in line
-            and not line.isdigit()
-        ):
-            clean = re.sub(r"<[^>]+>", "", line).strip()
-            if clean:
-                current_text.append(clean)
-
-    if current_text and current_time:
-        text = " ".join(current_text)
-        if text not in seen_texts:
-            lines.append(f"[{current_time}] {text}")
-
-    return "\n".join(lines) if lines else None
-
-
-def run_yt_dlp_subs(url, tmpdir, cookies_path=None):
-    """Run yt-dlp to download auto-subs. Returns (vtt_files, rc, stderr)."""
-    cmd = [
-        "yt-dlp",
-        "--skip-download",
-        "--write-auto-subs",
-        "--sub-lang", "en",
-        "--sub-format", "vtt",
-        "--js-runtimes", "node",   # Node.js is available on GitHub Actions runners
-        "--output", os.path.join(tmpdir, "%(id)s"),
-    ]
-    if cookies_path:
-        cmd.extend(["--cookies", cookies_path])
-    cmd.append(url)
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
-    vtt_files = glob.glob(os.path.join(tmpdir, "*.vtt"))
-    return vtt_files, result.returncode, result.stderr.strip()
-
-
 def get_transcript(video_id):
-    """Download auto-generated English subtitles for a video using yt-dlp."""
-    cookies_content = os.environ.get("YOUTUBE_COOKIES", "").strip()
-    tmpdir = None
-    cookies_path = None
-
+    """Fetch transcript using youtube-transcript-api (no bot detection issues)."""
     try:
-        tmpdir = tempfile.mkdtemp()
-        url = f"https://www.youtube.com/watch?v={video_id}"
-
-        # Debug: show cookie status
-        if cookies_content:
-            first_line = cookies_content.split('\n')[0][:100]
-            print(f"  YOUTUBE_COOKIES: {len(cookies_content)} chars, first line: {repr(first_line)}")
-            if "Netscape HTTP Cookie File" in cookies_content:
-                print(f"  Cookie format: VALID Netscape - will use for auth")
-            else:
-                print(f"  Cookie format: INVALID - missing Netscape header, skipping cookies")
-        else:
-            print(f"  YOUTUBE_COOKIES: not set or empty - no auth")
-        # Validate cookies - must be Netscape format
-        if cookies_content and "Netscape HTTP Cookie File" in cookies_content:
-            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
-            tmp.write(cookies_content)
-            tmp.close()
-            cookies_path = tmp.name
-
-        vtt_files, rc, stderr = run_yt_dlp_subs(url, tmpdir, cookies_path)
-
-        if rc != 0 and stderr:
-            # Filter out the Node.js warning if it's just a warning
-            errors = [l for l in stderr.splitlines() if "ERROR" in l]
-            if errors:
-                print(f"  yt-dlp error: {errors[0][:300]}")
-
-        if not vtt_files:
-            print(f"  No subtitles found for this video")
-            return None
-
-        print(f"  Found subtitle file, parsing...")
-        with open(vtt_files[0], "r", encoding="utf-8") as f:
-            content = f.read()
-        return parse_vtt_to_text(content)
-
+        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US"])
+        lines = []
+        for entry in transcript_list:
+            t = int(entry["start"])
+            minutes = t // 60
+            seconds = t % 60
+            text = entry["text"].strip()
+            if text:
+                lines.append(f"[{minutes:02d}:{seconds:02d}] {text}")
+        result = "\n".join(lines)
+        return result if result else None
+    except (NoTranscriptFound, TranscriptsDisabled):
+        print(f"  No transcript available for this video")
+        return None
     except Exception as e:
         print(f"  Could not get transcript: {e}")
         return None
-    finally:
-        if cookies_path and os.path.exists(cookies_path):
-            os.unlink(cookies_path)
-        if tmpdir:
-            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def load_seen_videos():
     if os.path.exists(SEEN_VIDEOS_FILE):
         with open(SEEN_VIDEOS_FILE, "r") as f:
             data = json.load(f)
-        return set(data) if isinstance(data, list) else set()
+            return set(data) if isinstance(data, list) else set()
     return set()
 
 
@@ -205,7 +110,6 @@ def main():
             f"Date: {date}\n\n"
         )
         content = (header + transcript).encode("utf-8")
-
         file_metadata = {"name": filename, "parents": [folder_id]}
         media = MediaInMemoryUpload(content, mimetype="text/plain")
         drive_service.files().create(
