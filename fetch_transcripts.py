@@ -112,6 +112,16 @@ def get_transcript(video_id):
         tmpdir = tempfile.mkdtemp()
         url = f"https://www.youtube.com/watch?v={video_id}"
 
+        # Debug: show cookie status
+        if cookies_content:
+            first_line = cookies_content.split('\n')[0][:100]
+            print(f"  YOUTUBE_COOKIES: {len(cookies_content)} chars, first line: {repr(first_line)}")
+            if "Netscape HTTP Cookie File" in cookies_content:
+                print(f"  Cookie format: VALID Netscape - will use for auth")
+            else:
+                print(f"  Cookie format: INVALID - missing Netscape header, skipping cookies")
+        else:
+            print(f"  YOUTUBE_COOKIES: not set or empty - no auth")
         # Validate cookies - must be Netscape format
         if cookies_content and "Netscape HTTP Cookie File" in cookies_content:
             tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False)
