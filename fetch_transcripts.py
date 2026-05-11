@@ -42,13 +42,23 @@ def get_recent_videos(limit=10):
 def get_transcript(video_id):
     """Fetch transcript using youtube-transcript-api (no bot detection issues)."""
     try:
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US"])
+        # Support both old (class method) and new (instance method) API styles
+        try:
+            api = YouTubeTranscriptApi()
+            transcript_list = api.fetch(video_id, languages=["en", "en-US"])
+        except TypeError:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US"])
         lines = []
         for entry in transcript_list:
-            t = int(entry["start"])
+            # Handle both dict entries and object entries (new API returns objects)
+            if hasattr(entry, 'text'):
+                t = int(entry.start)
+                text = entry.text.strip()
+            else:
+                t = int(entry["start"])
+                text = entry["text"].strip()
             minutes = t // 60
             seconds = t % 60
-            text = entry["text"].strip()
             if text:
                 lines.append(f"[{minutes:02d}:{seconds:02d}] {text}")
         result = "\n".join(lines)
