@@ -2,13 +2,12 @@ import json
 import os
 import re
 import subprocess
-from urllib.parse import urlparse
 
+import requests
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 from google.oauth2.service_account import Credentials
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
-from youtube_transcript_api.proxies import WebshareProxyConfig
 
 CHANNEL_URL = "https://www.youtube.com/@isaac_davydov/videos"
 SEEN_VIDEOS_FILE = "seen_videos.json"
@@ -41,18 +40,13 @@ def get_recent_videos(limit=10):
 
 
 def build_api():
-    """Build YouTubeTranscriptApi with Webshare proxy if credentials are available."""
+    """Build YouTubeTranscriptApi, using proxy URL directly if set."""
     proxy_url = os.environ.get("WEBSHARE_PROXY_URL")
     if proxy_url:
-        parsed = urlparse(proxy_url)
-        username = parsed.username
-        password = parsed.password
-        print(f"  Proxy configured for user: {username}")
-        proxy_config = WebshareProxyConfig(
-            proxy_username=username,
-            proxy_password=password,
-        )
-        return YouTubeTranscriptApi(proxy_config=proxy_config)
+        print(f"  Proxy enabled")
+        session = requests.Session()
+        session.proxies = {"http": proxy_url, "https": proxy_url}
+        return YouTubeTranscriptApi(http_client=session)
     return YouTubeTranscriptApi()
 
 
