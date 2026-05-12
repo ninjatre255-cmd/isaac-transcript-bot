@@ -4,13 +4,11 @@ import re
 import subprocess
 
 import requests
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaInMemoryUpload
-from google.oauth2.service_account import Credentials
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
 
 CHANNEL_URL = "https://www.youtube.com/@isaac_davydov/videos"
 SEEN_VIDEOS_FILE = "seen_videos.json"
+TRANSCRIPTS_DIR = "transcripts"
 
 
 def get_recent_videos(limit=10):
@@ -43,7 +41,7 @@ def build_api():
     """Build YouTubeTranscriptApi, using proxy URL directly if set."""
     proxy_url = os.environ.get("WEBSHARE_PROXY_URL")
     if proxy_url:
-        print(f"  Proxy enabled")
+        print("  Proxy enabled")
         session = requests.Session()
         session.proxies = {"http": proxy_url, "https": proxy_url}
         return YouTubeTranscriptApi(http_client=session)
@@ -69,7 +67,7 @@ def get_transcript(video_id, api):
         result = "\n".join(lines)
         return result if result else None
     except (NoTranscriptFound, TranscriptsDisabled):
-        print(f"  No transcript available for this video")
+        print("  No transcript available for this video")
         return None
     except Exception as e:
         print(f"  Could not get transcript: {e}")
@@ -90,17 +88,12 @@ def save_seen_videos(seen):
 
 
 def main():
-    creds_json = json.loads(os.environ["GOOGLE_CREDENTIALS"])
-    creds = Credentials.from_service_account_info(
-        creds_json, scopes=["https://www.googleapis.com/auth/drive.file"]
-    )
-    drive_service = build("drive", "v3", credentials=creds)
-    folder_id = os.environ["DRIVE_FOLDER_ID"]
+    os.makedirs(TRANSCRIPTS_DIR, exist_ok=True)
 
     api = build_api()
     videos = get_recent_videos(limit=10)
     seen = load_seen_videos()
-    uploaded = 0
+    saved = 0
 
     for video in videos:
         vid_id = video["id"]
@@ -114,29 +107,26 @@ def main():
         print(f"\n  New video found: {title}")
         transcript = get_transcript(vid_id, api)
         if not transcript:
-            print(f"  Skipping (no transcript)")
+            print("  Skipping (no transcript)")
             continue
 
-        safe_title = re.sub(r'[\\/:*?"<>|]', "_", title)[:80]
-        filename = f"{date}_{safe_title}.txt"
+        safe_title = re.sub(r'[/:*?"<>|\\]', "_", title)[:80]
+        filename = os.path.join(TRANSCRIPTS_DIR, f"{date}_{safe_title}.txt")
         header = (
             f"Title: {title}\n"
             f"Video ID: {vid_id}\n"
             f"URL: https://www.youtube.com/watch?v={vid_id}\n"
             f"Date: {date}\n\n"
         )
-        content = (header + transcript).encode("utf-8")
-        file_metadata = {"name": filename, "parents": [folder_id]}
-        media = MediaInMemoryUpload(content, mimetype="text/plain")
-        drive_service.files().create(
-            body=file_metadata, media_body=media, fields="id"
-        ).execute()
-        print(f"  Uploaded: {filename}")
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(header + transcript)
+
+        print(f"  Saved: {filename}")
         seen.add(vid_id)
         save_seen_videos(seen)
-        uploaded += 1
+        saved += 1
 
-    print(f"\nDone. Uploaded {uploaded} new transcript(s).")
+    print(f"\nDone. Saved {saved} new transcript(s).")
 
 
 if __name__ == "__main__":
