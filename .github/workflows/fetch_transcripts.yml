@@ -21,20 +21,17 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install yt-dlp youtube-transcript-api google-auth google-api-python-client
+        run: pip install yt-dlp youtube-transcript-api requests
 
-      - name: Fetch new transcripts and upload to Drive
+      - name: Fetch new transcripts
         env:
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
-          YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
           WEBSHARE_PROXY_URL: ${{ secrets.WEBSHARE_PROXY_URL }}
         run: python fetch_transcripts.py
 
-      - name: Commit updated seen_videos.json
+      - name: Commit transcripts and seen_videos.json
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add seen_videos.json
-          git diff --staged --quiet || git commit -m "chore: update seen videos list [skip ci]"
+          git add seen_videos.json transcripts/
+          git diff --staged --quiet || git commit -m "chore: add new transcripts [skip ci]"
           git push
