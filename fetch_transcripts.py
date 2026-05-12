@@ -17,8 +17,7 @@ def get_recent_videos(limit=10):
     print(f"Fetching recent videos from {CHANNEL_URL}...")
     result = subprocess.run(
         [
-            "yt-dlp",
-            "--flat-playlist",
+            "yt-dlp", "--flat-playlist",
             "--print", "%(id)s|||%(title)s|||%(upload_date)s",
             "--playlist-end", str(limit),
             "--quiet", "--no-warnings",
@@ -40,17 +39,19 @@ def get_recent_videos(limit=10):
 
 
 def get_transcript(video_id):
-    """Fetch transcript using youtube-transcript-api (no bot detection issues)."""
+    """Fetch transcript using youtube-transcript-api with proxy to bypass IP blocks."""
+    proxy_url = os.environ.get("WEBSHARE_PROXY_URL")
+    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
+    if proxy_url:
+        print(f"  Using proxy: {proxy_url[:30]}...")
     try:
-        # Support both old (class method) and new (instance method) API styles
         try:
-            api = YouTubeTranscriptApi()
+            api = YouTubeTranscriptApi(proxies=proxies) if proxies else YouTubeTranscriptApi()
             transcript_list = api.fetch(video_id, languages=["en", "en-US"])
         except TypeError:
             transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US"])
         lines = []
         for entry in transcript_list:
-            # Handle both dict entries and object entries (new API returns objects)
             if hasattr(entry, 'text'):
                 t = int(entry.start)
                 text = entry.text.strip()
@@ -75,7 +76,7 @@ def load_seen_videos():
     if os.path.exists(SEEN_VIDEOS_FILE):
         with open(SEEN_VIDEOS_FILE, "r") as f:
             data = json.load(f)
-            return set(data) if isinstance(data, list) else set()
+        return set(data) if isinstance(data, list) else set()
     return set()
 
 
