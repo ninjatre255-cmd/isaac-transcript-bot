@@ -2,11 +2,13 @@ import json
 import os
 import re
 import subprocess
+from urllib.parse import urlparse
 
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaInMemoryUpload
 from google.oauth2.service_account import Credentials
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+from youtube_transcript_api.proxies import WebshareProxyConfig
 
 CHANNEL_URL = "https://www.youtube.com/@isaac_davydov/videos"
 SEEN_VIDEOS_FILE = "seen_videos.json"
@@ -38,18 +40,26 @@ def get_recent_videos(limit=10):
     return videos
 
 
-def get_transcript(video_id):
-    """Fetch transcript using youtube-transcript-api with proxy to bypass IP blocks."""
+def build_api():
+    """Build YouTubeTranscriptApi with Webshare proxy if credentials are available."""
     proxy_url = os.environ.get("WEBSHARE_PROXY_URL")
-    proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else None
     if proxy_url:
-        print(f"  Using proxy: {proxy_url[:30]}...")
+        parsed = urlparse(proxy_url)
+        username = parsed.username
+        password = parsed.password
+        print(f"  Proxy configured for user: {username}")
+        proxy_config = WebshareProxyConfig(
+            proxy_username=username,
+            proxy_password=password,
+        )
+        return YouTubeTranscriptApi(proxy_config=proxy_config)
+    return YouTubeTranscriptApi()
+
+
+def get_transcript(video_id, api):
+    """Fetch transcript using youtube-transcript-api."""
     try:
-        try:
-            api = YouTubeTranscriptApi(proxies=proxies) if proxies else YouTubeTranscriptApi()
-            transcript_list = api.fetch(video_id, languages=["en", "en-US"])
-        except TypeError:
-            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=["en", "en-US"])
+        transcript_list = api.fetch(video_id, languages=["en", "en-US"])
         lines = []
         for entry in transcript_list:
             if hasattr(entry, 'text'):
@@ -93,6 +103,7 @@ def main():
     drive_service = build("drive", "v3", credentials=creds)
     folder_id = os.environ["DRIVE_FOLDER_ID"]
 
+    api = build_api()
     videos = get_recent_videos(limit=10)
     seen = load_seen_videos()
     uploaded = 0
@@ -107,7 +118,7 @@ def main():
             continue
 
         print(f"\n  New video found: {title}")
-        transcript = get_transcript(vid_id)
+        transcript = get_transcript(vid_id, api)
         if not transcript:
             print(f"  Skipping (no transcript)")
             continue
