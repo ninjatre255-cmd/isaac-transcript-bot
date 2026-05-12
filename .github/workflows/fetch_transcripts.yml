@@ -28,6 +28,7 @@ jobs:
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           DRIVE_FOLDER_ID: ${{ secrets.DRIVE_FOLDER_ID }}
           YOUTUBE_COOKIES: ${{ secrets.YOUTUBE_COOKIES }}
+          WEBSHARE_PROXY_URL: ${{ secrets.WEBSHARE_PROXY_URL }}
         run: python fetch_transcripts.py
 
       - name: Commit updated seen_videos.json
