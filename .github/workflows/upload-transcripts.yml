@@ -1,1 +1,28 @@
-/Users/trerossi/Downloads/Summit-Habit-Tracker/../Downloads/transcript-uploader/github-workflow.yml
+name: Upload new transcripts to Claude Project
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "transcripts/**.txt"
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Upload transcripts to Claude Project
+        env:
+          CLAUDE_SESSION_KEY: ${{ secrets.CLAUDE_SESSION_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python upload_to_project.py
